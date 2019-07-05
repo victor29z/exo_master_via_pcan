@@ -17,15 +17,22 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/uio.h>
+#include <sys/epoll.h>
 
 #include <linux/can.h>
 #include <linux/can/raw.h>
 #include <ros/ros.h>
 
+
+
 extern int optind, opterr, optopt;
 
 static int	s = -1;
 static int	running = 1;
+
+int epid;
+struct epoll_event event;
+struct epoll_event events[6];
 
 enum {
 	VERSION_OPTION = CHAR_MAX + 1,
@@ -69,6 +76,24 @@ int add_filter(u_int32_t id, u_int32_t mask)
 	printf("id: 0x%08x mask: 0x%08x\n",id,mask);
 	return 0;
 }
+
+int EpollInit(int cfd){
+	epid = epoll_create(6);
+
+	event.events = EPOLLET | EPOLLIN;
+	event.data.fd = cfd;
+	if(epoll_ctl(epid, EPOLL_CTL_ADD, cfd, &event) != 0){
+		printf("set epoll error!\n");
+		return 0;
+	}
+	printf("set epoll ok!\n");
+
+	return 1;
+
+
+}
+
+
 
 #define BUF_SIZ	(255)
 
@@ -180,7 +205,7 @@ int main(int argc, char **argv)
 		perror("bind");
 		return 1;
 	}
-
+	EpollInit(s);
 	if (filter) {
 		if (setsockopt(s, SOL_CAN_RAW, CAN_RAW_FILTER, filter,
 			       filter_count * sizeof(struct can_filter)) != 0) {
@@ -205,37 +230,56 @@ int main(int argc, char **argv)
 	}
 
 	while (running) {
-		if ((nbytes = read(s, &frame, sizeof(struct can_frame))) < 0) {
-			perror("read");
-			return 1;
-		} else {
-			if (frame.can_id & CAN_EFF_FLAG)
-				n = snprintf(buf, BUF_SIZ, "<0x%08x> ", frame.can_id & CAN_EFF_MASK);
-			else
-				n = snprintf(buf, BUF_SIZ, "<0x%03x> ", frame.can_id & CAN_SFF_MASK);
-
-			n += snprintf(buf + n, BUF_SIZ - n, "[%d] ", frame.can_dlc);
-			for (i = 0; i < frame.can_dlc; i++) {
-				n += snprintf(buf + n, BUF_SIZ - n, "%02x ", frame.data[i]);
-			}
-			if (frame.can_id & CAN_RTR_FLAG)
-				n += snprintf(buf + n, BUF_SIZ - n, "remote request");
-
-			fprintf(out, "%s\n", buf);
-
-			do {
-				err = fflush(out);
-				if (err == -1 && errno == EPIPE) {
-					err = -EPIPE;
-					fclose(out);
-					out = fopen(optout, "a");
-					if (!out)
-						exit (EXIT_FAILURE);
+		int witeNum = epoll_wait(epid,events,1,50);
+		printf("witeNum = %d\n",witeNum);
+		if(witeNum == 0)
+			continue;
+		else{
+			for(int i = 0;i < witeNum; i++){
+				if((events[i].events & EPOLLERR)
+						|| (events[i].events & EPOLLHUP)
+						|| (!(events[i].events & EPOLLIN))){
+					printf("no data\n");
+					break;
 				}
-			} while (err == -EPIPE);
+				else if(events[i].events & EPOLLIN){
+					if ((nbytes = read(s, &frame, sizeof(struct can_frame))) < 0) {
+								perror("read");
+								return 1;
+							} else {
+								if (frame.can_id & CAN_EFF_FLAG)
+									n = snprintf(buf, BUF_SIZ, "<0x%08x> ", frame.can_id & CAN_EFF_MASK);
+								else
+									n = snprintf(buf, BUF_SIZ, "<0x%03x> ", frame.can_id & CAN_SFF_MASK);
 
-			n = 0;
+								n += snprintf(buf + n, BUF_SIZ - n, "[%d] ", frame.can_dlc);
+								for (i = 0; i < frame.can_dlc; i++) {
+									n += snprintf(buf + n, BUF_SIZ - n, "%02x ", frame.data[i]);
+								}
+								if (frame.can_id & CAN_RTR_FLAG)
+									n += snprintf(buf + n, BUF_SIZ - n, "remote request");
+
+								fprintf(out, "%s\n", buf);
+
+								do {
+									err = fflush(out);
+									if (err == -1 && errno == EPIPE) {
+										err = -EPIPE;
+										fclose(out);
+										out = fopen(optout, "a");
+										if (!out)
+											exit (EXIT_FAILURE);
+									}
+								} while (err == -EPIPE);
+
+								n = 0;
+							}
+
+				}
+			}
+
 		}
+
 	}
 
 	exit (EXIT_SUCCESS);

@@ -7,6 +7,10 @@ project(pcan_test)
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
+#SET(CMAKE_BUILD_TYPE "Debug")
+SET(CMAKE_CXX_FLAG "$ENV{CXXFLAGS} -O0 -Wall -g2 -ggdb")
+#SET(CMAKE_CXX_FLAG_RELEASE "$ENV{CXXFLAGS} -O3 -Wall")
+
 find_package(catkin REQUIRED COMPONENTS
   roscpp
   rospy

@@ -34,6 +34,8 @@
 #define TO_SLAVE_HAND_PORT 12625
 #define FROM_SLAVE_HAND_PORT 17362
 
+#define TO_MATLAB_PORT 9090
+
 extern int optind, opterr, optopt;
 // socketcan_descriptor
 static int	s = -1;
@@ -87,6 +89,7 @@ void* thread_udp(void* arg){
 	unsigned int runcount = 0;
 	int socketudp_frommaster = *(int*)arg;
 	int socketudp_toslave;
+	int socketudp_tomatlab;
 	JOINT_DAT_TYPE recv_frame;
 	int i = 0;
 
@@ -97,6 +100,16 @@ void* thread_udp(void* arg){
 	addr_toslave.sin_port = htons(TO_SLAVE_HAND_PORT);
 
 	socketudp_toslave = socket(AF_INET,SOCK_DGRAM,0);
+
+	//to matlab
+	struct sockaddr_in addr_tomatlab;
+	bzero(&addr_tomatlab,sizeof(addr_tomatlab));
+	addr_tomatlab.sin_family = AF_INET;
+	addr_tomatlab.sin_addr.s_addr = inet_addr("192.168.1.187");
+	addr_tomatlab.sin_port = htons(TO_MATLAB_PORT);
+
+	socketudp_tomatlab = socket(AF_INET,SOCK_DGRAM,0);
+	//end of to matlab
 	while(running){
 		//usleep(10);
 		//printf("thread2 awake\r\n");
@@ -104,6 +117,12 @@ void* thread_udp(void* arg){
 		int nbytes = recvfrom(socketudp_frommaster,&recv_frame, sizeof(JOINT_DAT_TYPE), 0, (struct sockaddr*)&addr_udp,(socklen_t*)&addr_udp_len);
 		//printf("%d: received a pack!\r\n",runcount++);
 		sendto(socketudp_toslave,&joint_data, sizeof(JOINT_DAT_TYPE), 0, (struct sockaddr*)&addr_toslave,addr_udp_len);
+		int joint_data_matlab[7];
+		for(i = 0; i < 7; i++){
+			joint_data_matlab[i] = joint_data.joint_pos_abs[i];
+		}
+		sendto(socketudp_tomatlab,joint_data_matlab, sizeof(joint_data_matlab), 0, (struct sockaddr*)&addr_tomatlab,addr_udp_len);
+
 		if(runcount++ % 100 == 0)
 			for(i = 0; i < 16; i++)
 				joint_data.joint_online[i] = false;
@@ -113,6 +132,7 @@ void* thread_udp(void* arg){
 void* thread_can(void* arg)
 {
 	int socketcan_fd = *(int*)arg;
+	int s_can;
 	struct can_frame frame;
 	FILE *out = stdout;
 	char *optout = NULL;
@@ -120,16 +140,75 @@ void* thread_can(void* arg)
 	int n = 0, err;
 	int nbytes, i;
 	unsigned int runcount = 0;
+	////////////////////////////
+/*
+	struct ifreq ifr;
+	struct sockaddr_can addr;
+
+	char *interface = "can0";
+	char *ptr;
+	int family = PF_CAN, type = SOCK_RAW, proto = CAN_RAW;
+	int opt, optdaemon = 0;
+	uint32_t id, mask;
 
 
+	printf("interface = %s, family = %d, type = %d, proto = %d\n",
+		   interface, family, type, proto);
+//create the socket
+	if ((s_can = socket(family, type, proto)) < 0) {
+		perror("socket");
+
+	}
+
+	addr.can_family = family;
+	strncpy(ifr.ifr_name, interface, sizeof(ifr.ifr_name));
+	if (ioctl(s_can, SIOCGIFINDEX, &ifr)) {
+		perror("ioctl");
+
+	}
+	addr.can_ifindex = ifr.ifr_ifindex;
+//bind socket
+	if (bind(s_can, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+		perror("bind");
+
+	}
+
+	if (filter) {
+		if (setsockopt(s_can, SOL_CAN_RAW, CAN_RAW_FILTER, filter,
+				   filter_count * sizeof(struct can_filter)) != 0) {
+			perror("setsockopt");
+			exit(1);
+		}
+	}
+
+	if (optdaemon)
+		daemon(1, 0);
+	else {
+		signal(SIGTERM, sigterm);
+		signal(SIGHUP, sigterm);
+	}
+
+	if (optout) {
+		out = fopen(optout, "a");
+		if (!out) {
+			perror("fopen");
+			exit (EXIT_FAILURE);
+		}
+	}
+*/
+	////////////////////////////
+
+
+
+
+
+	//printf("can thread created,fd= %d\r\n",socketcan_fd);
 	while(running){
-		if ((nbytes = read(socketcan_fd, &frame, sizeof(struct can_frame))) < 0) {
-			if(errno == EINTR || errno == EWOULDBLOCK ||errno == EAGAIN){
-				usleep(10);
-				//printf("%d: thread read nothing!\r\n",runcount++);
-
-			}
-
+		if ((nbytes = read(socketcan_fd, &frame, sizeof(struct can_frame))) < 0)
+		//if ((nbytes = read(socketcan_fd, &frame, sizeof(struct can_frame))) < 0)
+		{
+			//perror("read");
+			printf("read error\r\n");
 		} else {
 
 			unsigned int canid = frame.can_id;
@@ -174,6 +253,7 @@ void* thread_can(void* arg)
 
 void get_config(void){
 	int i,j;
+
 	std::ifstream cfg("/home/zl/paramlist.cfg");
 	if(!cfg.is_open()){
 		perror("bad configuration!");
@@ -181,7 +261,9 @@ void get_config(void){
 	}
 
 	cfg.seekg(0);
+
 	for(i = 0; i < 16 && !cfg.eof(); i++){
+
 			char line[256];
 			std::string linestr;
 			cfg.getline(line,256);
@@ -209,7 +291,8 @@ void get_config(void){
 						<< cfg_UploadID_list[i] << ":"
 						<< cfg_Data_offset[i] << ":"
 						<< cfg_DownloadID_list[i] << std::endl;
-	    }
+
+		}
 
 	    if(i != 16){
 	    	perror("bad configuration!");
@@ -217,6 +300,7 @@ void get_config(void){
 	    }
 
 	    cfg.close();
+
 
 
 
@@ -244,8 +328,10 @@ int main(int argc, char **argv)
 	signal(SIGPIPE, SIG_IGN);
 
 
+
 	printf("interface = %s, family = %d, type = %d, proto = %d\n",
 	       interface, family, type, proto);
+
 //create the socket
 	if ((s = socket(family, type, proto)) < 0) {
 		perror("socket");
@@ -287,7 +373,8 @@ int main(int argc, char **argv)
 			exit (EXIT_FAILURE);
 		}
 	}
-	set_nonblocking(s);
+	/////////////////////////////////////////////////////////
+	//set_nonblocking(s);
 
 	//udp socket init
 
@@ -303,6 +390,7 @@ int main(int argc, char **argv)
 	pthread_t tid_can,tid_udp;
 	int exitCode_can,exitCode_udp;
 	pthread_create(&tid_can,NULL,thread_can,(void*)&s);
+	//pthread_create(&tid_can,NULL,thread_can,NULL);
 	pthread_create(&tid_udp,NULL,thread_udp,(void*)&socket_udp);
 
 	pthread_join(tid_can,(void**)&exitCode_can);
