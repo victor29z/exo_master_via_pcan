@@ -140,105 +140,38 @@ void* thread_can(void* arg)
 	int n = 0, err;
 	int nbytes, i;
 	unsigned int runcount = 0;
-	////////////////////////////
-/*
-	struct ifreq ifr;
-	struct sockaddr_can addr;
 
-	char *interface = "can0";
-	char *ptr;
-	int family = PF_CAN, type = SOCK_RAW, proto = CAN_RAW;
-	int opt, optdaemon = 0;
-	uint32_t id, mask;
-
-
-	printf("interface = %s, family = %d, type = %d, proto = %d\n",
-		   interface, family, type, proto);
-//create the socket
-	if ((s_can = socket(family, type, proto)) < 0) {
-		perror("socket");
-
-	}
-
-	addr.can_family = family;
-	strncpy(ifr.ifr_name, interface, sizeof(ifr.ifr_name));
-	if (ioctl(s_can, SIOCGIFINDEX, &ifr)) {
-		perror("ioctl");
-
-	}
-	addr.can_ifindex = ifr.ifr_ifindex;
-//bind socket
-	if (bind(s_can, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-		perror("bind");
-
-	}
-
-	if (filter) {
-		if (setsockopt(s_can, SOL_CAN_RAW, CAN_RAW_FILTER, filter,
-				   filter_count * sizeof(struct can_filter)) != 0) {
-			perror("setsockopt");
-			exit(1);
-		}
-	}
-
-	if (optdaemon)
-		daemon(1, 0);
-	else {
-		signal(SIGTERM, sigterm);
-		signal(SIGHUP, sigterm);
-	}
-
-	if (optout) {
-		out = fopen(optout, "a");
-		if (!out) {
-			perror("fopen");
-			exit (EXIT_FAILURE);
-		}
-	}
-*/
-	////////////////////////////
-
-
-
-
-
-	//printf("can thread created,fd= %d\r\n",socketcan_fd);
 	while(running){
 		if ((nbytes = read(socketcan_fd, &frame, sizeof(struct can_frame))) < 0)
-		//if ((nbytes = read(socketcan_fd, &frame, sizeof(struct can_frame))) < 0)
 		{
-			//perror("read");
 			printf("read error\r\n");
 		} else {
 
 			unsigned int canid = frame.can_id;
 			int dat,mag;
-			dat = (unsigned char)frame.data[0] *256 + (unsigned char)frame.data[1];
-			mag = (unsigned char)frame.data[2];
+			int keyvalue;
+			// use highest byte for key value, and low 3 bytes for encoder value
+			dat = (unsigned char)frame.data[1] *65536 + (unsigned char)frame.data[2] * 256 + (unsigned char)frame.data[3];
+			keyvalue = (unsigned char)frame.data[0];
 			for(i = 0; i < 16; i++){
 			        if(canid == cfg_UploadID_list[i]){
 			            joint_data.joint_online[i] = true;
-			            if(mag){
+						joint_data.joint_pos_raw[i] = dat;
+						joint_data.joint_pos_valid[i] = true;
+						joint_data.keyvalue[i] = keyvalue;
 
-			                joint_data.joint_pos_raw[i] = dat;
-			                joint_data.joint_pos_valid[i] = true;
+						if(joint_data.joint_pos_raw[i] >= cfg_Data_offset[i])
+							joint_data.joint_pos_abs[i] = joint_data.joint_pos_raw[i] - cfg_Data_offset[i];
+						else
+							joint_data.joint_pos_abs[i] = joint_data.joint_pos_raw[i] + 4096 - cfg_Data_offset[i];
 
-			                if(joint_data.joint_pos_raw[i] >= cfg_Data_offset[i])
-			                    joint_data.joint_pos_abs[i] = joint_data.joint_pos_raw[i] - cfg_Data_offset[i];
-			                else
-			                    joint_data.joint_pos_abs[i] = joint_data.joint_pos_raw[i] + 4096 - cfg_Data_offset[i];
+						//datstr.setNum(t);
+						//LETable[i]->setText(datstr);
+						std::cout 	<< i << ":"
+									<< joint_data.joint_pos_abs[i] << ":"
+									<< joint_data.joint_online[i] << ":"
+									<< joint_data.joint_pos_valid[i] << std::endl;
 
-			                //datstr.setNum(t);
-			                //LETable[i]->setText(datstr);
-			                std::cout 	<< i << ":"
-										<< joint_data.joint_pos_abs[i] << ":"
-										<< joint_data.joint_online[i] << ":"
-										<< joint_data.joint_pos_valid[i] << std::endl;
-	}
-			            else{
-			                //LETable[i]->setText("Mag error!");
-			                joint_data.joint_pos_valid[i] = false;
-			            }
 			            break;
 			        }
 

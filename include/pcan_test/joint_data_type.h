@@ -6,6 +6,7 @@ typedef struct{
     unsigned int joint_force[16];
     bool joint_pos_valid[16];
     bool joint_online[16];
+    unsigned char keyvalue[16];
 
 }JOINT_DAT_TYPE;
 #endif // JOINT_DATA_TYPE_H
